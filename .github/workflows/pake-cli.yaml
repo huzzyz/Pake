@@ -131,12 +131,7 @@ jobs:
           }
 
           $baseSlugs = @($name, ($name -replace '\s+', '-')) | Where-Object { $_ } | Select-Object -Unique
-          $slugs = @()
-          foreach ($slug in $baseSlugs) {
-            $slugs += "$slug-dark"
-            $slugs += $slug
-          }
-          $slugs = $slugs | Select-Object -Unique
+          $slugs = $baseSlugs
 
           foreach ($slug in $slugs) {
             $iconUrl = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/$slug.png"
