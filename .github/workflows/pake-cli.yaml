@@ -242,18 +242,33 @@ jobs:
 
           if [ "${{ runner.os }}" = "macOS" ]; then
             src=$(find_one '*.dmg' . src-tauri/target)
-            cp "$src" "${{ inputs.name }}.dmg"
-            echo "Normalized DMG: $src -> ${{ inputs.name }}.dmg"
+            dest="${{ inputs.name }}.dmg"
+            if [ "$(cd "$(dirname "$src")" && pwd)/$(basename "$src")" = "$(pwd)/$dest" ]; then
+              echo "Normalized DMG already present: $dest"
+            else
+              cp "$src" "$dest"
+              echo "Normalized DMG: $src -> $dest"
+            fi
           fi
 
           if [ "${{ runner.os }}" = "Linux" ]; then
             if src=$(find_one '*.deb' . src-tauri/target 2>/dev/null); then
-              cp "$src" "${{ inputs.name }}.deb"
-              echo "Normalized DEB: $src -> ${{ inputs.name }}.deb"
+              dest="${{ inputs.name }}.deb"
+              if [ "$(cd "$(dirname "$src")" && pwd)/$(basename "$src")" = "$(pwd)/$dest" ]; then
+                echo "Normalized DEB already present: $dest"
+              else
+                cp "$src" "$dest"
+                echo "Normalized DEB: $src -> $dest"
+              fi
             fi
             if src=$(find_one '*.AppImage' . src-tauri/target 2>/dev/null); then
-              cp "$src" "${{ inputs.name }}.AppImage"
-              echo "Normalized AppImage: $src -> ${{ inputs.name }}.AppImage"
+              dest="${{ inputs.name }}.AppImage"
+              if [ "$(cd "$(dirname "$src")" && pwd)/$(basename "$src")" = "$(pwd)/$dest" ]; then
+                echo "Normalized AppImage already present: $dest"
+              else
+                cp "$src" "$dest"
+                echo "Normalized AppImage: $src -> $dest"
+              fi
             fi
           fi
 
