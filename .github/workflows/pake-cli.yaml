@@ -129,11 +129,10 @@ jobs:
           $slugs = $slugs | Select-Object -Unique
 
           foreach ($slug in $slugs) {
-            $pageUrl = "https://dashboardicons.com/icons/$slug"
             $iconUrl = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/$slug.png"
 
             try {
-              $response = Invoke-WebRequest -Uri $pageUrl -Method Head -MaximumRedirection 5 -TimeoutSec 10 -ErrorAction Stop
+              $response = Invoke-WebRequest -Uri $iconUrl -Method Head -MaximumRedirection 5 -TimeoutSec 10 -ErrorAction Stop
               if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
                 "icon=$iconUrl" >> $env:GITHUB_OUTPUT
                 "source=dashboardicons" >> $env:GITHUB_OUTPUT
