@@ -120,7 +120,13 @@ jobs:
           }
 
           $name = "${{ inputs.name }}".ToLower().Trim()
-          $slugs = @($name, ($name -replace '\s+', '-')) | Where-Object { $_ } | Select-Object -Unique
+          $baseSlugs = @($name, ($name -replace '\s+', '-')) | Where-Object { $_ } | Select-Object -Unique
+          $slugs = @()
+          foreach ($slug in $baseSlugs) {
+            $slugs += "$slug-light"
+            $slugs += $slug
+          }
+          $slugs = $slugs | Select-Object -Unique
 
           foreach ($slug in $slugs) {
             $pageUrl = "https://dashboardicons.com/icons/$slug"
