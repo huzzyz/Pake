@@ -3,7 +3,7 @@
 > Fork-specific additions in `huzzyz/Pake`:
 >
 > - GitHub Actions packaging flow that publishes builds directly to GitHub Releases instead of workflow artifacts
-> - Automatic icon resolution from [Dashboard Icons](https://dashboardicons.com/) when no explicit icon URL is provided
+> - Automatic icon resolution from [Dashboard Icons](https://dashboardicons.com/) when no explicit icon URL is provided, preferring variants intended for dark backgrounds when available
 > - Release and asset normalization so generated packages upload correctly even when app names contain special characters such as `Disney+` and `Osn+`
 
 <h4 align="right"><strong>English</strong> | <a href="README_CN.md">简体中文</a></h4>
