@@ -120,6 +120,16 @@ jobs:
           }
 
           $name = "${{ inputs.name }}".ToLower().Trim()
+          $customIcons = @{
+            "solitude" = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/synology-dsm.png"
+          }
+
+          if ($customIcons.ContainsKey($name)) {
+            "icon=$($customIcons[$name])" >> $env:GITHUB_OUTPUT
+            "source=custom-map" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
           $baseSlugs = @($name, ($name -replace '\s+', '-')) | Where-Object { $_ } | Select-Object -Unique
           $slugs = @()
           foreach ($slug in $baseSlugs) {
