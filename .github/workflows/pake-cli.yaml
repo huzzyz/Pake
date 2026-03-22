@@ -223,6 +223,59 @@ jobs:
 
           git checkout -- src-tauri/Cargo.lock
 
+      - name: Normalize package filenames (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find_one() {
+            local pattern=$1
+            shift
+            python3 - "$pattern" "$@" <<'PY'
+import glob
+import sys
+from pathlib import Path
+
+pattern = sys.argv[1]
+paths = []
+for base in sys.argv[2:]:
+    paths.extend(glob.glob(str(Path(base) / pattern), recursive=True))
+paths = [p for p in paths if Path(p).is_file()]
+if not paths:
+    sys.exit(1)
+paths.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
+print(paths[0])
+PY
+          }
+
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            src=$(find_one '*.dmg' . src-tauri/target)
+            cp "$src" "${{ inputs.name }}.dmg"
+            echo "Normalized DMG: $src -> ${{ inputs.name }}.dmg"
+          fi
+
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            if src=$(find_one '*.deb' . src-tauri/target 2>/dev/null); then
+              cp "$src" "${{ inputs.name }}.deb"
+              echo "Normalized DEB: $src -> ${{ inputs.name }}.deb"
+            fi
+            if src=$(find_one '*.AppImage' . src-tauri/target 2>/dev/null); then
+              cp "$src" "${{ inputs.name }}.AppImage"
+              echo "Normalized AppImage: $src -> ${{ inputs.name }}.AppImage"
+            fi
+          fi
+
+      - name: Normalize package filename (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Filter *.msi -Recurse | Sort-Object LastWriteTime -Descending
+          if ($files.Count -gt 0) {
+            Copy-Item -LiteralPath $files[0].FullName -Destination "${{ inputs.name }}.msi" -Force
+            Write-Host "Normalized MSI: $($files[0].FullName) -> ${{ inputs.name }}.msi"
+          }
+
       - name: Upload DMG to release (macOS)
         if: runner.os == 'macOS'
         shell: bash
