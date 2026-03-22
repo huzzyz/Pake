@@ -1,6 +1,7 @@
 > This fork builds on the original work by [tw93](https://github.com/tw93). The upstream project established the core Pake CLI, packaging flow, and cross-platform desktop wrapping model.
 >
 > Fork-specific additions in `huzzyz/Pake`:
+>
 > - GitHub Actions packaging flow that publishes builds directly to GitHub Releases instead of workflow artifacts
 > - Automatic icon resolution from [Dashboard Icons](https://dashboardicons.com/) when no explicit icon URL is provided
 > - Release and asset normalization so generated packages upload correctly even when app names contain special characters such as `Disney+` and `Osn+`
