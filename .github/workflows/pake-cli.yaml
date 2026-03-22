@@ -7,6 +7,15 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: "Platform"
+        required: true
+        default: "macos-latest"
+        type: choice
+        options:
+          - "windows-latest"
+          - "macos-latest"
+          - "ubuntu-24.04"
       url:
         description: "Website URL"
         required: true
@@ -34,58 +43,58 @@ on:
         required: false
         type: boolean
         default: false
+      multi_arch:
+        description: "Universal binary (macOS only)"
+        required: false
+        type: boolean
+        default: false
       targets:
         description: "Package formats (comma-separated: deb,appimage,rpm)"
         required: false
-        default: "deb,appimage"
+        default: "deb"
 
 permissions:
   contents: write
 
-concurrency:
-  group: pake-cli-${{ github.workflow }}-${{ inputs.name }}
-  cancel-in-progress: false
-
 jobs:
   build:
-    name: Build ${{ inputs.name }}
-    runs-on:
-      - self-hosted
-      - Linux
-      - X64
+    name: ${{ inputs.platform }}
+    runs-on: ${{ inputs.platform }}
+    strategy:
+      fail-fast: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 1
-          clean: false
+          toolchain: stable
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-env
         with:
           mode: build
 
-      - name: Setup mold linker
-        uses: rui314/setup-mold@v1
-
-      - name: Restore CLI bundle cache
-        id: cli_cache
-        uses: actions/cache/restore@v4
-        with:
-          path: dist
-          key: ${{ runner.os }}-pake-cli-dist-${{ hashFiles('package.json', 'pnpm-lock.yaml', 'rollup.config.js', 'bin/**') }}
-
       - name: Build CLI
-        if: steps.cli_cache.outputs.cache-hit != 'true'
         run: pnpm run cli:build
 
-      - name: Save CLI bundle cache
-        if: steps.cli_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+      - name: Setup mold linker
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@v1
+
+      - name: Rust cache restore
+        uses: actions/cache/restore@v4.2.0
+        id: cache_store
         with:
-          path: dist
-          key: ${{ steps.cli_cache.outputs.cache-primary-key }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pake-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Prepare release metadata
         id: release_meta
@@ -93,7 +102,7 @@ jobs:
         run: |
           safe_name="$(printf '%s' '${{ inputs.name }}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
           if [ -z "$safe_name" ]; then
-            echo "Unable to derive a safe release tag from '${{ inputs.name }}'" >&2
+            echo "Unable to derive release tag from '${{ inputs.name }}'" >&2
             exit 1
           fi
 
@@ -102,37 +111,53 @@ jobs:
 
       - name: Resolve icon URL
         id: icon
-        shell: bash
+        shell: pwsh
         run: |
-          if [ -n "${{ inputs.icon }}" ]; then
-            echo "icon=${{ inputs.icon }}" >> "$GITHUB_OUTPUT"
-            echo "source=explicit" >> "$GITHUB_OUTPUT"
+          if ("${{ inputs.icon }}" -ne "") {
+            "icon=${{ inputs.icon }}" >> $env:GITHUB_OUTPUT
+            "source=explicit" >> $env:GITHUB_OUTPUT
             exit 0
+          }
+
+          $name = "${{ inputs.name }}".ToLower().Trim()
+          $slugs = @($name, ($name -replace '\s+', '-')) | Where-Object { $_ } | Select-Object -Unique
+
+          foreach ($slug in $slugs) {
+            $pageUrl = "https://dashboardicons.com/icons/$slug"
+            $iconUrl = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/$slug.png"
+
+            try {
+              $response = Invoke-WebRequest -Uri $pageUrl -Method Head -MaximumRedirection 5 -TimeoutSec 10 -ErrorAction Stop
+              if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
+                "icon=$iconUrl" >> $env:GITHUB_OUTPUT
+                "source=dashboardicons" >> $env:GITHUB_OUTPUT
+                exit 0
+              }
+            } catch {
+              continue
+            }
+          }
+
+          "icon=" >> $env:GITHUB_OUTPUT
+          "source=auto" >> $env:GITHUB_OUTPUT
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${{ steps.release_meta.outputs.tag }}" >/dev/null 2>&1; then
+            gh release edit "${{ steps.release_meta.outputs.tag }}" --title "${{ steps.release_meta.outputs.name }}"
+          else
+            gh release create "${{ steps.release_meta.outputs.tag }}" --title "${{ steps.release_meta.outputs.name }}" --notes ""
           fi
 
-          base_url="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png"
-          lower_name="$(printf '%s' '${{ inputs.name }}' | tr '[:upper:]' '[:lower:]' | xargs)"
-          hyphen_name="$(printf '%s' "$lower_name" | sed -E 's/[[:space:]]+/-/g')"
-
-          for slug in "$lower_name" "$hyphen_name"; do
-            [ -n "$slug" ] || continue
-            url="${base_url}/${slug}.png"
-            if curl -fsSLI --max-time 10 "$url" >/dev/null; then
-              echo "icon=$url" >> "$GITHUB_OUTPUT"
-              echo "source=dashboard-icons" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-
-          echo "icon=" >> "$GITHUB_OUTPUT"
-          echo "source=auto" >> "$GITHUB_OUTPUT"
-
-      - name: Build app
+      - name: Build App (Linux/macOS)
+        if: runner.os != 'Windows'
         timeout-minutes: 25
         shell: bash
         run: |
-          set -euo pipefail
-
           ARGS=("${{ inputs.url }}" "--name" "${{ inputs.name }}")
 
           if [ -n "${{ steps.icon.outputs.icon }}" ]; then
@@ -147,52 +172,108 @@ jobs:
             ARGS+=("--height" "${{ inputs.height }}")
           fi
 
-          if [ "${{ inputs.fullscreen }}" = "true" ]; then
+          if [ "${{ inputs.fullscreen }}" == "true" ]; then
             ARGS+=("--fullscreen")
           fi
 
-          if [ "${{ inputs.hide_title_bar }}" = "true" ]; then
+          if [ "${{ inputs.hide_title_bar }}" == "true" ]; then
             ARGS+=("--hide-title-bar")
           fi
 
-          if [ -n "${{ inputs.targets }}" ]; then
+          if [ "${{ inputs.multi_arch }}" == "true" ]; then
+            ARGS+=("--multi-arch")
+          fi
+
+          if [ -n "${{ inputs.targets }}" ] && [ "${{ runner.os }}" == "Linux" ]; then
             ARGS+=("--targets" "${{ inputs.targets }}")
           fi
 
-          echo "Running: node dist/cli.js ${ARGS[*]}"
+          echo "Running: node dist/cli.js ${ARGS[@]}"
           node dist/cli.js "${ARGS[@]}"
 
-      - name: Collect release assets
+      - name: Build App (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          $args = "${{ inputs.url }}", "--name", "${{ inputs.name }}"
+
+          if ("${{ steps.icon.outputs.icon }}" -ne "") {
+            $args += "--icon", "${{ steps.icon.outputs.icon }}"
+          }
+
+          if ("${{ inputs.width }}" -ne "") {
+            $args += "--width", "${{ inputs.width }}"
+          }
+
+          if ("${{ inputs.height }}" -ne "") {
+            $args += "--height", "${{ inputs.height }}"
+          }
+
+          if ("${{ inputs.fullscreen }}" -eq "true") {
+            $args += "--fullscreen"
+          }
+
+          if ("${{ inputs.hide_title_bar }}" -eq "true") {
+            $args += "--hide-title-bar"
+          }
+
+          Write-Host "Running: node dist/cli.js $($args -join ' ')"
+          node dist/cli.js $args
+
+          git checkout -- src-tauri/Cargo.lock
+
+      - name: Upload DMG to release (macOS)
+        if: runner.os == 'macOS'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-
-          mkdir -p release-assets
-
-          for file in \
-            "${{ inputs.name }}.deb" \
-            "${{ inputs.name }}.AppImage" \
-            "${{ inputs.name }}.rpm" \
-            src-tauri/target/release/bundle/deb/*.deb \
-            src-tauri/target/release/bundle/appimage/*.AppImage \
-            src-tauri/target/release/bundle/rpm/*.rpm; do
-            [ -f "$file" ] || continue
-            mv -f "$file" release-assets/
-          done
-
-          if ! compgen -G 'release-assets/*' > /dev/null; then
-            echo "No release assets were produced." >&2
-            find . -maxdepth 4 \( -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) -print
-            exit 1
+          if [ -f "${{ inputs.name }}.dmg" ]; then
+            gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ inputs.name }}.dmg" --clobber
           fi
 
-      - name: Publish release
-        uses: ncipollo/release-action@v1
+      - name: Upload DEB to release (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -f "${{ inputs.name }}.deb" ]; then
+            gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ inputs.name }}.deb" --clobber
+          fi
+
+      - name: Upload AppImage to release (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -f "${{ inputs.name }}.AppImage" ]; then
+            gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ inputs.name }}.AppImage" --clobber
+          fi
+
+      - name: Upload MSI to release (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if (Test-Path "${{ inputs.name }}.msi") {
+            gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ inputs.name }}.msi" --clobber
+          }
+
+      - name: Rust cache store
+        uses: actions/cache/save@v4.2.0
+        if: steps.cache_store.outputs.cache-hit != 'true'
         with:
-          tag: ${{ steps.release_meta.outputs.tag }}
-          name: ${{ steps.release_meta.outputs.name }}
-          allowUpdates: true
-          replacesArtifacts: true
-          artifacts: release-assets/*
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pake-${{ hashFiles('**/Cargo.lock') }}
