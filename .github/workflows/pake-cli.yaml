@@ -232,21 +232,7 @@ jobs:
           find_one() {
             local pattern=$1
             shift
-            python3 - "$pattern" "$@" <<'PY'
-import glob
-import sys
-from pathlib import Path
-
-pattern = sys.argv[1]
-paths = []
-for base in sys.argv[2:]:
-    paths.extend(glob.glob(str(Path(base) / pattern), recursive=True))
-paths = [p for p in paths if Path(p).is_file()]
-if not paths:
-    sys.exit(1)
-paths.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
-print(paths[0])
-PY
+            python3 -c "import sys; from pathlib import Path; pattern = sys.argv[1]; paths = []; [paths.extend(Path(base).rglob(pattern)) for base in sys.argv[2:]]; paths = [p for p in paths if p.is_file()]; paths.sort(key=lambda p: p.stat().st_mtime, reverse=True); print(paths[0]) if paths else sys.exit(1)" "$pattern" "$@"
           }
 
           if [ "${{ runner.os }}" = "macOS" ]; then
